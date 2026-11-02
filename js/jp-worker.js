@@ -1,10 +1,12 @@
 // Background worker: builds the kuromoji tokenizer (dictionary download + decompression is heavy)
 // off the main thread, then tokenizes lyric lines on request.
 /* global kuromoji */
-importScripts("https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js");
+// Hosted in this repo (vendor/, Apache-2.0): kuromoji joins dicPath with a path helper that breaks
+// absolute "https://" URLs on https pages, so the dictionary must be served from this site.
+importScripts("../vendor/kuromoji/kuromoji.js");
 
 const ready = new Promise((resolve, reject) => {
-  kuromoji.builder({ dicPath: "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/" })
+  kuromoji.builder({ dicPath: "../vendor/kuromoji/dict/" })
     .build((err, t) => (err ? reject(err) : resolve(t)));
 });
 

@@ -21,7 +21,7 @@
 
 ## 技術
 純前端（HTML/CSS/JavaScript 模組，不需要編譯），GitHub Pages 免費部署。
-- 斷詞與讀音：[kuromoji.js](https://github.com/takuyaa/kuromoji.js)（瀏覽器端，字典約 12 MB，第一次載入後快取）
+- 斷詞與讀音：[kuromoji.js](https://github.com/takuyaa/kuromoji.js)（Apache-2.0，放在 `vendor/kuromoji/`；在背景 Web Worker 執行，字典約 12 MB，第一次載入後快取）
 - 假名位置與羅馬拼音（Hepburn）：`js/japanese.js`
 - 歌詞時間、KTV 變色進度：`js/lrc.js`
 - YouTube IFrame API／無聲計時器：`js/player.js`
