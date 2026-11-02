@@ -55,15 +55,15 @@ async () => {
   eq('yt watch', P.youtubeId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=x'), 'dQw4w9WgXcQ');
   eq('yt bad', P.youtubeId('hello'), '');
   // tokenizer end-to-end (downloads the dictionary)
-  const tk = await J.getTokenizer();
-  const words = J.analyzeLine(tk, '朝の光が窓をたたく');
+  const A = async t => (await J.analyzeLines([t]))[0];
+  const words = await A('朝の光が窓をたたく');
   eq('romaji line', J.romajiLine(words), 'asa no hikari ga mado o tataku');
   eq('furigana', words.filter(w => w.segs.some(s => s.rt)).map(w => w.segs.map(s => s.rt || '').join('')), ['あさ', 'ひかり', 'まど']);
-  const w2 = J.analyzeLine(tk, '君は空を見る');
+  const w2 = await A('君は空を見る');
   eq('particle wa', J.romajiLine(w2), 'kimi wa sora o miru');
-  eq('te-form joined', J.romajiLine(J.analyzeLine(tk, '眠い目をこすって空を見る')), 'nemui me o kosutte sora o miru');
-  eq('te-form 2', J.romajiLine(J.analyzeLine(tk, '君の町まで飛んでいく')), 'kimi no machi made tonde iku');
-  eq('past/neg', J.romajiLine(J.analyzeLine(tk, '忘れないでね')), 'wasurenaide ne');
+  eq('te-form joined', J.romajiLine(await A('眠い目をこすって空を見る')), 'nemui me o kosutte sora o miru');
+  eq('te-form 2', J.romajiLine(await A('君の町まで飛んでいく')), 'kimi no machi made tonde iku');
+  eq('past/neg', J.romajiLine(await A('忘れないでね')), 'wasurenaide ne');
   return fails;
 }
 """
@@ -81,6 +81,12 @@ def main() -> int:
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(BASE)
         page.wait_for_selector(".song")
+        # the dictionary loads in a worker: the page must stay responsive right after opening
+        import time as _t
+        t0 = _t.time()
+        page.evaluate("1+1")
+        if _t.time() - t0 > 1:
+            failures.append("main thread blocked while the dictionary loads")
         failures += page.evaluate(UNIT)
 
         # library -> demo song in the KTV screen

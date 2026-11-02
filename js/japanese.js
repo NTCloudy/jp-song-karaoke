@@ -1,30 +1,46 @@
 // Japanese text processing: tokenizing (kuromoji), furigana placement and Hepburn romaji.
 // Everything runs in the browser; the ~12 MB dictionary is fetched once and cached by the service worker.
 
-const KUROMOJI_JS = "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js";
-const DICT_PATH = "https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/";
+// The tokenizer runs in a Web Worker (js/jp-worker.js) so the page never freezes while the dictionary loads.
+let worker = null, seq = 0, warm = null;
+const pending = new Map();
 
-let tokenizerPromise = null;
+function getWorker() {
+  if (!worker) {
+    worker = new Worker(new URL("./jp-worker.js", import.meta.url));
+    worker.onmessage = e => {
+      const p = pending.get(e.data.id);
+      if (!p) return;
+      pending.delete(e.data.id);
+      e.data.error ? p.reject(new Error("日文分析失敗：" + e.data.error)) : p.resolve(e.data.tokens);
+    };
+    worker.onerror = e => {
+      for (const p of pending.values()) p.reject(new Error("無法載入日文分析程式（請確認網路）"));
+      pending.clear();
+      worker = null;
+      warm = null;
+      e.preventDefault?.();
+    };
+  }
+  return worker;
+}
 
-function loadScript(src) {
+/** Tokens for each text: [[{surface_form, pos, pos_detail_1, basic_form, reading}, ...], ...] */
+export function tokenize(texts) {
   return new Promise((resolve, reject) => {
-    if (window.kuromoji) return resolve();
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("無法載入日文分析程式（請確認網路）"));
-    document.head.appendChild(s);
+    const id = ++seq;
+    pending.set(id, { resolve, reject });
+    getWorker().postMessage({ id, texts });
   });
 }
 
-export function getTokenizer() {
-  if (!tokenizerPromise) {
-    tokenizerPromise = loadScript(KUROMOJI_JS).then(() => new Promise((resolve, reject) => {
-      window.kuromoji.builder({ dicPath: DICT_PATH }).build((err, t) => err ? reject(err) : resolve(t));
-    }));
-    tokenizerPromise.catch(() => { tokenizerPromise = null; });
-  }
-  return tokenizerPromise;
+/** Start loading the dictionary in the background (resolves when ready). */
+export function warmUp() { return warm || (warm = tokenize(["準備"]).catch(e => { warm = null; throw e; })); }
+
+/** Words for every line (see analyzeLine). */
+export async function analyzeLines(texts) {
+  const all = await tokenize(texts);
+  return all.map(analyzeLine);
 }
 
 // ---------------------------------------------------------------- kana helpers
@@ -98,9 +114,9 @@ const POS_ZH = { 名詞: "名詞", 動詞: "動詞", 形容詞: "形容詞", 副
 const PARTICLE_ROMAJI = { は: "wa", へ: "e", を: "o" };
 
 /** One display word per token: {surface, reading(hira), romaji, pos, base, segs, content} */
-export function analyzeLine(tokenizer, text) {
+export function analyzeLine(tokens) {
   const words = [];
-  for (const t of tokenizer.tokenize(text)) {
+  for (const t of tokens) {
     const surface = t.surface_form;
     if (!surface.trim()) { words.push({ surface, space: true }); continue; }
     const reading = t.reading && t.reading !== "*" ? kataToHira(t.reading) : (isKana(surface[0]) ? kataToHira(surface) : "");

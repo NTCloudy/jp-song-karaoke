@@ -1,5 +1,5 @@
 import * as store from "./store.js";
-import { getTokenizer, analyzeLine, romajiLine } from "./japanese.js";
+import { analyzeLines, romajiLine, warmUp } from "./japanese.js";
 import { parseLyrics, fmtTime, toLrc, currentIndex, lineProgress } from "./lrc.js";
 import { createClock, youtubeId } from "./player.js";
 import { analyzeSong, meaningFor } from "./ai.js";
@@ -238,8 +238,8 @@ async function showPlay(id) {
   // ---- lyrics analysis (furigana / romaji / words)
   let lines;
   try {
-    const tk = await getTokenizer();
-    lines = s.lines.map(l => { const words = analyzeLine(tk, l.text); return { ...l, words, romaji: romajiLine(words) }; });
+    const all = await analyzeLines(s.lines.map(l => l.text));
+    lines = s.lines.map((l, i) => ({ ...l, words: all[i], romaji: romajiLine(all[i]) }));
   } catch (e) {
     $("#stage").innerHTML = `<div class="loading">❌ ${esc(e.message)}</div>`;
     return;
@@ -537,4 +537,4 @@ function showSettings() {
 window.addEventListener("hashchange", route);
 route();
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js");
-getTokenizer().catch(() => {});   // warm up the dictionary in the background
+warmUp().catch(() => {});   // load the dictionary in the background worker
