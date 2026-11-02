@@ -6,7 +6,6 @@ export const DEMO = {
   youtubeId: "",
   offset: 0,
   duration: 44,
-  analysis: null,
   lines: [
     { t: 2.0, text: "朝の光が窓をたたく" },
     { t: 6.5, text: "眠い目をこすって空を見る" },

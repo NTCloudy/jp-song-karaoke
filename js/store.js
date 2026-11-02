@@ -2,10 +2,10 @@
 
 const KEY = "jpk.v1";
 const DEFAULT = {
-  songs: [],          // {id, title, artist, youtubeId, duration, offset, lines:[{text,t}], analysis, plays, practiceSec, created}
+  songs: [],          // {id, title, artist, youtubeId, duration, offset, lines:[{text,t}], plays, practiceSec, created}
   vocab: [],          // {id, surface, reading, romaji, base, meaning, pos, songId, line, due, interval, ease, reps, lapses, created}
   log: {},            // {"YYYY-MM-DD": {sec, plays, reviews}}
-  settings: { geminiKey: "", showRomaji: true, showFurigana: true, showZh: true, rate: 1, fontScale: 1 },
+  settings: { showRomaji: true, showFurigana: true, rate: 1, fontScale: 1 },
 };
 
 let db = null;

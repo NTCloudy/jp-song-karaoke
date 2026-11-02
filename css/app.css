@@ -63,7 +63,6 @@ body[data-screen=play] main { padding-top: 6px; }
 .ln.now .fill .ro { color: var(--hot2); }
 .ln.prev, .ln.next, .ln.next2 { font-size: clamp(16px, 4.4vw, 24px); opacity: .5; }
 .ln.next2 { opacity: .3; } .ln.prev { opacity: .35; }
-.ln .zh { font-size: .48em; color: var(--muted); margin-top: 4px; white-space: normal; }
 .w.c { border-bottom: 1px dotted rgba(255, 255, 255, .25); }
 .controls { position: sticky; bottom: calc(62px + var(--safe-b)); background: rgba(20, 16, 42, .95); border: 1px solid var(--line);
   border-radius: 14px; padding: 8px 10px; }
@@ -79,7 +78,6 @@ body[data-screen=play] main { padding-top: 6px; }
 .sheet-card button.primary { color: #fff; } .sheet-card .word { font-size: 30px; font-weight: 800; }
 .meaning { font-size: 20px; font-weight: 700; margin: 8px 0; }
 .line-ctx { background: #f6f4ff; border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
-.notes { background: #fff7e0; border-radius: 10px; padding: 8px 10px; margin: 8px 0; font-size: 14px; }
 
 /* ---------- sync ---------- */
 .sync-now { text-align: center; } .sync-line { font-size: 24px; font-weight: 800; margin: 6px 0; }

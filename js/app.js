@@ -2,7 +2,6 @@ import * as store from "./store.js";
 import { analyzeLines, romajiLine, warmUp } from "./japanese.js";
 import { parseLyrics, fmtTime, toLrc, currentIndex, lineProgress } from "./lrc.js";
 import { createClock, youtubeId } from "./player.js";
-import { analyzeSong, meaningFor } from "./ai.js";
 import * as srs from "./srs.js";
 import { DEMO } from "./demo.js";
 import { videoInfo, findLyrics, searchFree } from "./fetchsong.js";
@@ -70,7 +69,7 @@ function showLibrary() {
         <a class="grow" href="#/play/${s.id}">
           <div class="title">${esc(s.title)}</div>
           <div class="muted">${esc(s.artist || "")}${s.artist ? "・" : ""}${s.lines.length} 句・${s.youtubeId ? "▶ YouTube" : "🔇 無影片"}
-            ${timed ? "" : "・<span class='warn'>還沒對時</span>"}${s.analysis ? "・🤖 已解析" : ""}</div>
+            ${timed ? "" : "・<span class='warn'>還沒對時</span>"}</div>
           <div class="muted small">練習 ${s.plays || 0} 次・${Math.round((s.practiceSec || 0) / 60)} 分鐘</div>
         </a>
         <div class="col">
@@ -86,7 +85,7 @@ function showLibrary() {
 function songFromLyrics(item, vid, extra = {}) {
   const { lines, timed } = parseLyrics(item.syncedLyrics || item.plainLyrics || "");
   return {
-    id: store.uid(), created: Date.now(), plays: 0, practiceSec: 0, offset: 0, analysis: null,
+    id: store.uid(), created: Date.now(), plays: 0, practiceSec: 0, offset: 0,
     title: item.trackName, artist: item.artistName, youtubeId: vid,
     lines: timed ? lines : lines.map(l => ({ text: l.text, t: null })),
     lyricsSource: { site: "LRCLIB", id: item.id, duration: item.duration || 0 }, ...extra,
@@ -192,7 +191,6 @@ function showEdit(id) {
       ...(s || { id: store.uid(), created: Date.now(), plays: 0, practiceSec: 0, offset: 0 }),
       title, artist: $("#f-artist").value.trim(), youtubeId: vid,
       lines: timed ? lines : lines.map((l, i) => ({ text: l.text, t: s && !changedText ? s.lines[i]?.t ?? null : null })),
-      analysis: changedText ? null : s?.analysis || null,
     };
     store.upsertSong(next);
     const ready = next.lines.every(l => l.t != null);
@@ -298,7 +296,7 @@ async function showPlay(id) {
   const st = store.load().settings;
   view().innerHTML = `
     <div class="row between ktv-head"><div><div class="title">${esc(s.title)}</div><div class="muted small">${esc(s.artist || "")}</div></div>
-      <div class="row"><button class="small ghost" id="ver" title="歌詞版本不對時換一個">🔄 換歌詞</button><button class="small" id="ai">🤖 AI 解析</button></div></div>
+      <div class="row"><button class="small ghost" id="ver" title="歌詞版本不對時換一個">🔄 換歌詞</button></div></div>
     <div id="video" class="video"></div>
     <div id="stage" class="stage"><div class="loading">🈁 分析歌詞中…（第一次要下載日文字典，約 10 秒）</div></div>
     <div class="controls">
@@ -317,7 +315,6 @@ async function showPlay(id) {
       <div class="row center toggles">
         <label><input type="checkbox" id="t-furi" ${st.showFurigana ? "checked" : ""}> 假名</label>
         <label><input type="checkbox" id="t-roma" ${st.showRomaji ? "checked" : ""}> 羅馬</label>
-        <label id="zh-toggle" title="每句下方的中文翻譯（AI 解析後才有）" ${s.analysis ? "" : "hidden"}><input type="checkbox" id="t-zh" ${st.showZh ? "checked" : ""}> 中文翻譯</label>
         <span class="muted small">時間微調 <button class="tiny" id="off-minus" title="歌詞早一點">−</button>
           <span id="off">${(s.offset || 0).toFixed(1)}s</span><button class="tiny" id="off-plus" title="歌詞晚一點">＋</button></span>
       </div>
@@ -335,16 +332,14 @@ async function showPlay(id) {
   }
 
   const stage = $("#stage");
-  const opts = () => ({ furi: $("#t-furi").checked, roma: $("#t-roma").checked, zh: $("#t-zh").checked });
+  const opts = () => ({ furi: $("#t-furi").checked, roma: $("#t-roma").checked });
   const lineBlock = (i, cls) => {
     if (i < 0 || i >= lines.length) return `<div class="ln ${cls} empty"></div>`;
     const o = opts(), L = lines[i];
     const jp = L.words.map((w, wi) => rubyHtml(w, i, wi, o.furi)).join("");
-    const zh = s.analysis?.lines?.[i]?.zh;
     const body = `<div class="jp">${jp}</div>${o.roma ? `<div class="ro">${esc(L.romaji)}</div>` : ""}`;
     return `<div class="ln ${cls}" data-i="${i}">
-      <div class="wipe"><div class="base">${body}</div><div class="fill" aria-hidden="true">${body}</div></div>
-      ${o.zh && zh && cls === "now" ? `<div class="zh">${esc(zh)}</div>` : ""}</div>`;
+      <div class="wipe"><div class="base">${body}</div><div class="fill" aria-hidden="true">${body}</div></div></div>`;
   };
   let shown = null;
   const renderLines = idx => {
@@ -428,8 +423,8 @@ async function showPlay(id) {
   const seek = $("#seek");
   seek.oninput = () => { tick.dragging = true; };
   seek.onchange = () => { tick.dragging = false; clock.seek(seek.value / 100 * dur()); };
-  ["furi", "roma", "zh"].forEach(k => $(`#t-${k}`).onchange = e => {
-    const map = { furi: "showFurigana", roma: "showRomaji", zh: "showZh" };
+  ["furi", "roma"].forEach(k => $(`#t-${k}`).onchange = e => {
+    const map = { furi: "showFurigana", roma: "showRomaji" };
     store.load().settings[map[k]] = e.target.checked; store.save(); renderLines(shown);
   });
   const nudge = d => { s.offset = +((s.offset || 0) + d).toFixed(1); $("#off").textContent = `${s.offset.toFixed(1)}s`; store.upsertSong(s); };
@@ -445,29 +440,12 @@ async function showPlay(id) {
     $("#sh-x").onclick = () => sheet.classList.remove("show");
     showPicker($("#ver-box"), [], `${s.title} ${s.artist || ""}`.trim(), item => {
       const fresh = songFromLyrics(item, s.youtubeId);
-      Object.assign(s, { title: fresh.title, artist: fresh.artist, lines: fresh.lines, lyricsSource: fresh.lyricsSource, analysis: null, offset: 0 });
+      Object.assign(s, { title: fresh.title, artist: fresh.artist, lines: fresh.lines, lyricsSource: fresh.lyricsSource, offset: 0 });
       store.upsertSong(s);
       toast("已換成這個版本");
       route();
     });
   };
-
-  // ---- AI notes (automatic when a Gemini key is set)
-  $("#ai").onclick = async (ev) => {
-    if (s.analysis && ev?.isTrusted !== false && !confirm("已經解析過了，要重新解析嗎？")) return;
-    const btn = $("#ai");
-    btn.disabled = true; btn.textContent = "🤖 解析中…";
-    try {
-      s.analysis = await analyzeSong(store.load().settings.geminiKey, s.title, s.lines);
-      store.upsertSong(s);
-      toast("解析完成：中文翻譯、文法、單字意思都有了");
-      $("#zh-toggle").hidden = false;
-      renderLines(shown);
-    } catch (e) { toast(e.message, 5000); if (/金鑰/.test(e.message)) setTimeout(() => go("#/settings"), 1500); }
-    btn.disabled = false; btn.textContent = "🤖 AI 解析";
-  };
-
-  if (!s.analysis && store.load().settings.geminiKey) $("#ai").onclick({ isTrusted: false });
 
   // ---- tap a word / a line
   stage.onclick = e => {
@@ -478,16 +456,12 @@ async function showPlay(id) {
   };
   function openWord(li, wi) {
     const word = lines[li].words[wi];
-    const ai = meaningFor(s.analysis, li, word);
-    const notes = s.analysis?.lines?.[li]?.notes;
     const inVocab = store.load().vocab.some(v => v.base === word.base && v.surface === word.surface);
     const sheet = $("#sheet");
     sheet.innerHTML = `<div class="sheet-card">
       <div class="row between"><div class="word">${esc(word.surface)}</div><button class="ghost" id="sh-x">✕</button></div>
       <div class="muted">${esc(word.reading || "")}・${esc(word.romaji || "")}・${esc(word.pos)}${word.base !== word.surface ? `・辭書形 ${esc(word.base)}` : ""}</div>
-      <div class="meaning">${ai ? esc(ai.m) : s.analysis ? "（AI 沒有解釋這個詞）" : "按上方「🤖 AI 解析」就會有中文意思"}</div>
-      <div class="line-ctx">${esc(lines[li].text)}${s.analysis?.lines?.[li]?.zh ? `<div class="muted">${esc(s.analysis.lines[li].zh)}</div>` : ""}</div>
-      ${notes ? `<div class="notes">📘 ${esc(notes)}</div>` : ""}
+      <div class="line-ctx">${esc(lines[li].text)}</div>
       <div class="row">
         <button id="sh-say">🔊 唸單字</button><button id="sh-line">🔊 唸整句</button>
         <button class="primary" id="sh-add" ${inVocab ? "disabled" : ""}>${inVocab ? "✓ 已在單字本" : "⭐ 加入單字本"}</button>
@@ -499,13 +473,13 @@ async function showPlay(id) {
     $("#sh-add").onclick = () => {
       const db = store.load();
       db.vocab.unshift({
-        id: store.uid(), surface: word.surface, base: ai?.base || word.base, reading: ai?.r || word.reading,
-        romaji: word.romaji, meaning: ai?.m || "", pos: word.pos, songId: s.id, song: s.title, line: lines[li].text,
+        id: store.uid(), surface: word.surface, base: word.base, reading: word.reading,
+        romaji: word.romaji, meaning: "", pos: word.pos, songId: s.id, song: s.title, line: lines[li].text,
         due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0, created: Date.now(),
       });
       store.save();
       $("#sh-add").textContent = "✓ 已加入"; $("#sh-add").disabled = true;
-      toast(ai ? "已加入單字本" : "已加入單字本（可以到單字本補上中文意思）");
+      toast("已加入單字本（可以到單字本寫上中文意思）");
     };
   }
 
@@ -636,22 +610,9 @@ function showSettings() {
   view().innerHTML = `
     <h2>⚙️ 設定</h2>
     <div class="card">
-      <b>🤖 Gemini API 金鑰</b>（中文翻譯、文法、單字意思用；免費）
-      <input id="key" type="password" value="${esc(st.geminiKey)}" placeholder="AIza...">
-      <div class="muted small">到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 按「Create API key」取得。
-        金鑰只存在這個瀏覽器，只會用來呼叫 Google 的 Gemini。</div>
-      <button class="primary" id="key-save">儲存金鑰</button>
-    </div>
-    <div class="card">
-      <b>💾 備份</b>
-      <div class="muted small">歌詞、單字本和紀錄都只存在這個瀏覽器。換手機或清除瀏覽器資料前，先匯出備份。</div>
-      <div class="row"><button id="exp">匯出備份檔</button><label class="btn">匯入備份檔<input type="file" id="imp" accept=".json" hidden></label></div>
-    </div>
-    <div class="card">
       <b>📱 加到 iPhone 主畫面</b>
-      <div class="muted small">用 Safari 開啟這個網頁 → 按下方「分享」按鈕 → 「加入主畫面」。之後就像 App 一樣全螢幕開啟，沒有網路也能看已存的歌詞（YouTube 和 AI 解析需要網路）。</div>
+      <div class="muted small">用 Safari 開啟這個網頁 → 按下方「分享」按鈕 → 「加入主畫面」。之後就像 App 一樣全螢幕開啟，沒有網路也能看已存的歌詞（YouTube 和抓歌詞需要網路）。</div>
     </div>`;
-  $("#key-save").onclick = () => { st.geminiKey = $("#key").value.trim(); store.save(); toast("已儲存"); };
   $("#exp").onclick = () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([store.exportJson()], { type: "application/json" }));
