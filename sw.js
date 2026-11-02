@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached on install; the Japanese dictionary (vendor/) is cached the first time it loads.
-const VERSION = "jpk-v5";
+const VERSION = "jpk-v6";
 const SHELL = ["./", "index.html", "css/app.css", "js/app.js", "js/japanese.js", "js/lrc.js", "js/store.js",
   "js/player.js", "js/ai.js", "js/srs.js", "js/demo.js", "js/jp-worker.js", "js/fetchsong.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 

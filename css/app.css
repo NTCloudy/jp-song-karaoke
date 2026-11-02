@@ -109,3 +109,4 @@ body[data-screen=play] main { padding-top: 6px; }
 .speed { margin-top: 6px; flex-wrap: wrap; } .controls .speed button { font-size: 15px; padding: 5px 12px; }
 .controls .speed .slowline { font-size: 14px; }
 body[data-screen=play] .toast { bottom: auto; top: calc(env(safe-area-inset-top, 0px) + 64px); }
+[hidden] { display: none !important; }

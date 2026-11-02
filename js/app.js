@@ -317,7 +317,7 @@ async function showPlay(id) {
       <div class="row center toggles">
         <label><input type="checkbox" id="t-furi" ${st.showFurigana ? "checked" : ""}> 假名</label>
         <label><input type="checkbox" id="t-roma" ${st.showRomaji ? "checked" : ""}> 羅馬</label>
-        <label><input type="checkbox" id="t-zh" ${st.showZh ? "checked" : ""}> 中文</label>
+        <label id="zh-toggle" title="每句下方的中文翻譯（AI 解析後才有）" ${s.analysis ? "" : "hidden"}><input type="checkbox" id="t-zh" ${st.showZh ? "checked" : ""}> 中文翻譯</label>
         <span class="muted small">時間微調 <button class="tiny" id="off-minus" title="歌詞早一點">−</button>
           <span id="off">${(s.offset || 0).toFixed(1)}s</span><button class="tiny" id="off-plus" title="歌詞晚一點">＋</button></span>
       </div>
@@ -461,6 +461,7 @@ async function showPlay(id) {
       s.analysis = await analyzeSong(store.load().settings.geminiKey, s.title, s.lines);
       store.upsertSong(s);
       toast("解析完成：中文翻譯、文法、單字意思都有了");
+      $("#zh-toggle").hidden = false;
       renderLines(shown);
     } catch (e) { toast(e.message, 5000); if (/金鑰/.test(e.message)) setTimeout(() => go("#/settings"), 1500); }
     btn.disabled = false; btn.textContent = "🤖 AI 解析";
