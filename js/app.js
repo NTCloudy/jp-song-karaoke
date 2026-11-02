@@ -289,6 +289,8 @@ function rubyHtml(w, li, wi, furigana) {
   return `<span class="w${w.content ? " c" : ""}" data-li="${li}" data-wi="${wi}">${inner}</span>`;
 }
 
+const RATES = [0.5, 0.75, 1];   // speeds YouTube supports on every video
+
 async function showPlay(id) {
   const s = store.song(id);
   if (!s) return go("#/");
@@ -306,7 +308,11 @@ async function showPlay(id) {
         <button id="play" class="primary round">▶</button>
         <button id="next" title="下一句">⏭</button>
         <button id="loop" title="重複這一句">🔁</button>
-        <select id="rate">${[0.5, 0.75, 0.9, 1].map(r => `<option value="${r}" ${r === (st.rate || 1) ? "selected" : ""}>${r}x</option>`).join("")}</select>
+      </div>
+      <div class="row center speed">
+        <span class="muted small">🐢 速度</span>
+        ${RATES.map(r => `<button class="rate ${r === (st.rate || 1) ? "on" : ""}" data-r="${r}">${r}x</button>`).join("")}
+        <button id="slowline" class="slowline" title="用 0.75 倍速重複目前這一句">🐢🔁 慢速練這句</button>
       </div>
       <div class="row center toggles">
         <label><input type="checkbox" id="t-furi" ${st.showFurigana ? "checked" : ""}> 假名</label>
@@ -358,10 +364,18 @@ async function showPlay(id) {
   let shell;
   try { shell = await mountClock(s, tick); } catch (e) { toast(e.message, 6000); return; }
   const { clock } = shell;
-  clock.setRate(+$("#rate").value);
+  let rate = RATES.includes(st.rate) ? st.rate : 1;
+  const setRate = r => {
+    rate = r;
+    clock.setRate(r);
+    $$(".rate").forEach(b => b.classList.toggle("on", +b.dataset.r === r));
+    store.load().settings.rate = r; store.save();
+  };
+  setRate(rate);
   let loopLine = -1, startedAt = null, practiced = 0, counted = false;
   clock.onstate = p => {
     $("#play").textContent = p ? "⏸" : "▶";
+    if (p && s.youtubeId && clock.player?.getPlaybackRate?.() !== rate) clock.setRate(rate);  // YouTube may reset the speed on start
     if (p) { startedAt = performance.now(); if (!counted) { counted = true; s.plays = (s.plays || 0) + 1; store.upsertSong(s); store.logPractice(0, 1); } }
     else if (startedAt) { practiced += (performance.now() - startedAt) / 1000; startedAt = null; }
   };
@@ -398,9 +412,19 @@ async function showPlay(id) {
   $("#loop").onclick = () => {
     loopLine = loopLine >= 0 ? -1 : Math.max(0, shown);
     $("#loop").classList.toggle("on", loopLine >= 0);
+    if (loopLine < 0) $("#slowline").classList.remove("on");
     toast(loopLine >= 0 ? `🔁 重複第 ${loopLine + 1} 句` : "取消重複");
   };
-  $("#rate").onchange = e => { clock.setRate(+e.target.value); store.load().settings.rate = +e.target.value; store.save(); };
+  $$(".rate").forEach(b => b.onclick = () => { setRate(+b.dataset.r); toast(`速度 ${b.dataset.r}x`); });
+  $("#slowline").onclick = () => {
+    const on = !(loopLine >= 0 && rate < 1);
+    loopLine = on ? Math.max(0, shown) : -1;
+    setRate(on ? 0.75 : 1);
+    $("#loop").classList.toggle("on", on);
+    $("#slowline").classList.toggle("on", on);
+    if (on) { clock.seek(lines[loopLine].t - (s.offset || 0) - 0.3); if (!clock.playing) clock.play(); }
+    toast(on ? `🐢 0.75 倍速重複第 ${loopLine + 1} 句` : "恢復正常速度");
+  };
   const seek = $("#seek");
   seek.oninput = () => { tick.dragging = true; };
   seek.onchange = () => { tick.dragging = false; clock.seek(seek.value / 100 * dur()); };
@@ -490,6 +514,7 @@ async function showPlay(id) {
     if (e.code === "ArrowLeft") $("#prev").click();
     if (e.code === "ArrowRight") $("#next").click();
     if (e.key === "r") $("#loop").click();
+    if (e.key === "s") $("#slowline").click();
   };
   document.addEventListener("keydown", key);
   cleanup = () => {

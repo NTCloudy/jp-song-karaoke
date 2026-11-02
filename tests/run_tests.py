@@ -131,6 +131,20 @@ def main() -> int:
         if "眠" not in page.inner_text(".ln.now .base .jp"):
             failures.append("KTV: loop did not keep the current line")
         page.click("#loop")
+        # slow playback: 0.5x must advance the lyrics clock about half as fast
+        page.click('.rate[data-r="0.5"]')
+        t1 = page.evaluate("parseFloat(document.querySelector('#seek').value)")
+        page.wait_for_timeout(4000)
+        t2 = page.evaluate("parseFloat(document.querySelector('#seek').value)")
+        dur = 44
+        speed = (t2 - t1) / 100 * dur / 4
+        if not 0.35 < speed < 0.65:
+            failures.append(f"slow playback: clock speed {speed:.2f}x at 0.5x")
+        page.click("#slowline")
+        if page.locator("#slowline.on").count() != 1 or page.locator('.rate.on[data-r="0.75"]').count() != 1:
+            failures.append("slow-line practice did not switch to 0.75x + loop")
+        page.screenshot(path=str(OUT / "2b-slow.png"))
+        page.click("#slowline")
         page.click("#play")
 
         # vocab + review
