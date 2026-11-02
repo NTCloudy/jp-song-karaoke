@@ -5,6 +5,7 @@ import { createClock, youtubeId } from "./player.js";
 import { analyzeSong, meaningFor } from "./ai.js";
 import * as srs from "./srs.js";
 import { DEMO } from "./demo.js";
+import { videoInfo, findLyrics, searchFree } from "./fetchsong.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -31,7 +32,7 @@ function speak(text) {
 
 // ------------------------------------------------------------------ router
 const routes = {
-  "": showLibrary, edit: showEdit, sync: showSync, play: showPlay,
+  "": showLibrary, add: showAdd, edit: showEdit, sync: showSync, play: showPlay,
   vocab: showVocab, review: showReview, stats: showStats, settings: showSettings,
 };
 
@@ -62,7 +63,7 @@ function showLibrary() {
       <div><div class="big">${db.songs.length}</div><div class="muted">首歌</div></div>
       <a href="#/review" class="${due ? "due" : ""}"><div class="big">${due}</div><div class="muted">待複習單字</div></a>
     </div>
-    <div class="row between"><h2>🎤 我的歌</h2><a class="btn primary" href="#/edit/new">＋ 新增歌曲</a></div>
+    <div class="row between"><h2>🎤 我的歌</h2><a class="btn primary" href="#/add">＋ 新增歌曲</a></div>
     ${db.songs.map(s => {
       const timed = s.lines.length && s.lines.every(l => l.t != null);
       return `<div class="card song">
@@ -81,7 +82,89 @@ function showLibrary() {
     <p class="muted small">歌詞只存在這支手機／這台電腦的瀏覽器裡。換裝置前請到「設定」匯出備份。</p>`;
 }
 
-// ------------------------------------------------------------------ add / edit
+// ------------------------------------------------------------------ one-step add: paste a YouTube link
+function songFromLyrics(item, vid, extra = {}) {
+  const { lines, timed } = parseLyrics(item.syncedLyrics || item.plainLyrics || "");
+  return {
+    id: store.uid(), created: Date.now(), plays: 0, practiceSec: 0, offset: 0, analysis: null,
+    title: item.trackName, artist: item.artistName, youtubeId: vid,
+    lines: timed ? lines : lines.map(l => ({ text: l.text, t: null })),
+    lyricsSource: { site: "LRCLIB", id: item.id, duration: item.duration || 0 }, ...extra,
+  };
+}
+
+function showAdd(prefill = "") {
+  view().innerHTML = `
+    <h2>＋ 新增歌曲</h2>
+    <div class="card">
+      <label>貼上 YouTube 連結，其他的我來抓
+        <input id="a-url" inputmode="url" placeholder="https://youtu.be/..." value="${esc(prefill)}"></label>
+      <button class="primary wide" id="a-go">🔎 自動抓歌名＋歌詞</button>
+      <div id="a-status" class="status"></div>
+    </div>
+    <div id="a-more"></div>
+    <p class="muted small">歌詞從公開的歌詞資料庫 LRCLIB 即時抓取，只存在你這個瀏覽器。找不到時也可以 <a href="#/edit/new">手動貼歌詞</a>。</p>`;
+  const status = (msg, cls = "") => { $("#a-status").innerHTML = `<div class="${cls}">${msg}</div>`; };
+  const run = async () => {
+    const url = $("#a-url").value.trim();
+    const vid = youtubeId(url);
+    if (!vid) return status("看不懂這個連結，請貼 YouTube 影片網址", "warn");
+    const dup = store.load().songs.find(x => x.youtubeId === vid);
+    if (dup) { toast("這首歌已經在清單裡了"); return go(`#/play/${dup.id}`); }
+    $("#a-go").disabled = true;
+    $("#a-more").innerHTML = "";
+    try {
+      status("① 讀取影片資訊…");
+      const info = await videoInfo(vid);
+      status(`① ${esc(info.title)}<br>② 找歌詞中…`);
+      const { best, candidates, guessed } = await findLyrics(info.title, info.channel);
+      if (best && best.syncedLyrics) {
+        const song = songFromLyrics(best, vid);
+        store.upsertSong(song);
+        status(`✅ 找到「${esc(song.title)}」${esc(song.artist)}（${song.lines.length} 句，有時間標記）`, "ok");
+        toast("找到歌詞了，開始唱吧！");
+        return go(`#/play/${song.id}`);
+      }
+      // nothing timed: let the user pick or search
+      status(best ? "⚠️ 只找到沒有時間標記的歌詞，選一個版本後要自己對時；或換個關鍵字再搜尋" : "😢 沒有自動找到這首歌的歌詞，換個關鍵字搜尋看看", "warn");
+      showPicker($("#a-more"), candidates, `${guessed?.track || info.title} ${guessed?.artist || ""}`.trim(), item => {
+        const song = songFromLyrics(item, vid);
+        store.upsertSong(song);
+        go(song.lines.every(l => l.t != null) ? `#/play/${song.id}` : `#/sync/${song.id}`);
+      });
+    } catch (e) {
+      status(`❌ ${esc(e.message)}`, "warn");
+    }
+    $("#a-go").disabled = false;
+  };
+  $("#a-go").onclick = run;
+  $("#a-url").addEventListener("paste", () => setTimeout(run, 50));   // paste = go
+  $("#a-url").onkeydown = e => { if (e.key === "Enter") run(); };
+  if (prefill) run();
+}
+
+/** Lyrics version picker with a search box (used when auto-match fails, and for "not this version?"). */
+function showPicker(el, items, query, onPick) {
+  const render = list => {
+    $(".pick-list", el).innerHTML = list.map((x, i) => `<button class="pick" data-i="${i}">
+      <b>${esc(x.trackName)}</b> <span class="muted">${esc(x.artistName)}</span>
+      <div class="muted small">${x.syncedLyrics ? "⏱ 有時間標記" : "📝 沒有時間標記"}${x.duration ? `・${Math.floor(x.duration / 60)}:${String(Math.round(x.duration % 60)).padStart(2, "0")}` : ""}${x.albumName ? `・${esc(x.albumName)}` : ""}</div>
+    </button>`).join("") || `<p class="muted">沒有結果，換個關鍵字（例如只打歌名，或「歌名 歌手」）。</p>`;
+    $(".pick-list", el).onclick = e => { const b = e.target.closest(".pick"); if (b) onPick(list[+b.dataset.i]); };
+  };
+  el.innerHTML = `<div class="card"><div class="row"><input class="pick-q" value="${esc(query)}"><button class="pick-go">搜尋</button></div>
+    <div class="pick-list"></div></div>`;
+  render(items);
+  const doSearch = async () => {
+    $(".pick-list", el).innerHTML = `<p class="muted">搜尋中…</p>`;
+    try { render(await searchFree($(".pick-q", el).value.trim())); } catch (e) { $(".pick-list", el).innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+  };
+  $(".pick-go", el).onclick = doSearch;
+  $(".pick-q", el).onkeydown = e => { if (e.key === "Enter") doSearch(); };
+  if (!items.length && query) doSearch();
+}
+
+// ------------------------------------------------------------------ add / edit (manual)
 function showEdit(id) {
   const s = id && id !== "new" ? store.song(id) : null;
   view().innerHTML = `
@@ -213,7 +296,7 @@ async function showPlay(id) {
   const st = store.load().settings;
   view().innerHTML = `
     <div class="row between ktv-head"><div><div class="title">${esc(s.title)}</div><div class="muted small">${esc(s.artist || "")}</div></div>
-      <div class="row"><a class="btn ghost small" href="#/sync/${s.id}">⏱ 對時</a><button class="small" id="ai">🤖 AI 解析</button></div></div>
+      <div class="row"><button class="small ghost" id="ver" title="歌詞版本不對時換一個">🔄 換歌詞</button><button class="small" id="ai">🤖 AI 解析</button></div></div>
     <div id="video" class="video"></div>
     <div id="stage" class="stage"><div class="loading">🈁 分析歌詞中…（第一次要下載日文字典，約 10 秒）</div></div>
     <div class="controls">
@@ -283,6 +366,11 @@ async function showPlay(id) {
     else if (startedAt) { practiced += (performance.now() - startedAt) / 1000; startedAt = null; }
   };
   const dur = () => clock.getDuration() || (lines.at(-1).t + 8);
+  setTimeout(() => {   // the video and the lyrics may be different versions (MV intro, radio edit…)
+    const vd = clock.getDuration(), ld = s.lyricsSource?.duration;
+    if (s.youtubeId && vd && ld && Math.abs(vd - ld) > 8 && !s.offset)
+      toast(`影片比歌詞版本${vd > ld ? "長" : "短"} ${Math.round(Math.abs(vd - ld))} 秒，歌詞對不上的話用下方「時間微調」或「⏱ 對時」`, 6000);
+  }, 2500);
 
   function tick(raw) {
     if (!lines) return;
@@ -324,9 +412,25 @@ async function showPlay(id) {
   $("#off-minus").onclick = () => nudge(-0.2);
   $("#off-plus").onclick = () => nudge(0.2);
 
-  // ---- AI notes
-  $("#ai").onclick = async () => {
-    if (s.analysis && !confirm("已經解析過了，要重新解析嗎？")) return;
+  // ---- other lyrics version
+  $("#ver").onclick = () => {
+    const sheet = $("#sheet");
+    sheet.innerHTML = `<div class="sheet-card"><div class="row between"><b>選擇歌詞版本</b><button class="ghost" id="sh-x">✕</button></div>
+      <div id="ver-box"></div><a class="small" href="#/sync/${s.id}">或自己對時 ⏱</a>・<a class="small" href="#/edit/${s.id}">手動編輯歌詞</a></div>`;
+    sheet.classList.add("show");
+    $("#sh-x").onclick = () => sheet.classList.remove("show");
+    showPicker($("#ver-box"), [], `${s.title} ${s.artist || ""}`.trim(), item => {
+      const fresh = songFromLyrics(item, s.youtubeId);
+      Object.assign(s, { title: fresh.title, artist: fresh.artist, lines: fresh.lines, lyricsSource: fresh.lyricsSource, analysis: null, offset: 0 });
+      store.upsertSong(s);
+      toast("已換成這個版本");
+      route();
+    });
+  };
+
+  // ---- AI notes (automatic when a Gemini key is set)
+  $("#ai").onclick = async (ev) => {
+    if (s.analysis && ev?.isTrusted !== false && !confirm("已經解析過了，要重新解析嗎？")) return;
     const btn = $("#ai");
     btn.disabled = true; btn.textContent = "🤖 解析中…";
     try {
@@ -337,6 +441,8 @@ async function showPlay(id) {
     } catch (e) { toast(e.message, 5000); if (/金鑰/.test(e.message)) setTimeout(() => go("#/settings"), 1500); }
     btn.disabled = false; btn.textContent = "🤖 AI 解析";
   };
+
+  if (!s.analysis && store.load().settings.geminiKey) $("#ai").onclick({ isTrusted: false });
 
   // ---- tap a word / a line
   stage.onclick = e => {

@@ -54,6 +54,19 @@ async () => {
   eq('yt short', P.youtubeId('https://youtu.be/dQw4w9WgXcQ?t=3'), 'dQw4w9WgXcQ');
   eq('yt watch', P.youtubeId('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=x'), 'dQw4w9WgXcQ');
   eq('yt bad', P.youtubeId('hello'), '');
+  // guessing artist / track from YouTube titles (made-up examples)
+  const F = await import('/js/fetchsong.js');
+  eq('guess quoted', F.guess('ほしぞら「月のうた」Official Music Video', 'ほしぞら Official')[0], {track:'月のうた', artist:'ほしぞら'});
+  eq('guess dash', F.guess('Sora Band - Blue Morning (Official Video) (4K Remaster)', 'Sora Band')[0], {track:'Blue Morning', artist:'Sora Band'});
+  eq('guess brackets', F.guess('【MV】雨の街 / かぜひかり', 'かぜひかり - Topic')[0].artist !== undefined, true);
+  eq('channel clean', F.cleanChannel('かぜひかり - Topic'), 'かぜひかり');
+  eq('band name with Official', F.cleanChannel('Official星空band'), 'Official星空band');
+  eq('fullwidth brackets', F.guess('Official星空band - Daylight［Official Video］', 'Official星空band')[0], {track:'Daylight', artist:'Official星空band'});
+  const g = {track:'月のうた', artist:'ほしぞら'};
+  const good = F.score({trackName:'月のうた', artistName:'ほしぞら', syncedLyrics:'[00:01.00]x'}, g, 'ほしぞら「月のうた」MV');
+  const inst = F.score({trackName:'月のうた (inst)', artistName:'ほしぞら', syncedLyrics:'[00:01.00]x'}, g, 'ほしぞら「月のうた」MV');
+  const plain = F.score({trackName:'月のうた', artistName:'ほしぞら', plainLyrics:'x'}, g, 'ほしぞら「月のうた」MV');
+  if (!(good > plain && good > inst)) fails.push(`score order: good ${good} plain ${plain} inst ${inst}`);
   // tokenizer end-to-end (downloads the dictionary)
   const A = async t => (await J.analyzeLines([t]))[0];
   const words = await A('朝の光が窓をたたく');
@@ -147,6 +160,21 @@ def main() -> int:
         saved = page.evaluate("JSON.parse(localStorage.getItem('jpk.v1')).songs.find(s => s.title === 'テスト').lines.map(l => l.t)")
         if not (saved[0] is not None and saved[1] is not None and saved[1] > saved[0]):
             failures.append(f"sync: times not saved in order: {saved}")
+        # one-step import from a YouTube link (network: noembed + LRCLIB). Only counts are checked; no lyrics are printed.
+        page.goto(BASE + "#/add")
+        page.fill("#a-url", "https://youtu.be/dQw4w9WgXcQ")
+        page.click("#a-go")
+        try:
+            page.wait_for_url("**/#/play/*", timeout=40000)
+            info = page.evaluate("""() => { const s = JSON.parse(localStorage.getItem('jpk.v1')).songs.find(x => x.youtubeId === 'dQw4w9WgXcQ');
+                return s && {n: s.lines.length, timed: s.lines.every(l => l.t != null), src: s.lyricsSource && s.lyricsSource.site, hasTitle: !!s.title}; }""")
+            if not info or info["n"] < 10 or not info["timed"] or info["src"] != "LRCLIB" or not info["hasTitle"]:
+                failures.append(f"import: unexpected result {info}")
+            else:
+                print(f"import ok: {info['n']} timed lines from {info['src']}")
+        except Exception as e:  # noqa: BLE001
+            failures.append(f"import: did not reach the KTV screen ({page.inner_text('#a-status')[:120]!r})")
+
         page.goto(BASE + "#/stats")
         page.wait_for_selector(".bars")
         page.screenshot(path=str(OUT / "7-stats.png"))
